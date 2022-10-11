@@ -1,2 +1,110 @@
 ---
 # tasks file for erddap
+- name: "INSTALLING java"
+  become: yes
+  become_user: root
+  tags:
+    - install
+  block:
+      - name: "installing necessary dependencies"
+        apt:
+          name:
+            - "wget"
+            - "apt-transport-https"
+          state: present
+
+      - name : "ensure keyrings folder exists"
+        file:
+          path: "/etc/apt/keyrings/"
+          state: directory
+
+      - name: "Download the Eclipse Adoptium GPG key:"
+        get_url:
+          url: "https://packages.adoptium.net/artifactory/api/gpg/key/public"
+          dest: "/etc/apt/keyrings/adoptium.asc"
+
+      - name: "Configure the Eclipse Adoptium apt repository"
+        apt_repository:
+          repo: "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb {{ ansible_distribution_release }} main"
+          filename: "adoptium"
+          state: present
+
+      - name: "system update"
+        command: "apt update"
+
+      - name: "installing  JDK (recommended version)"
+        apt:
+          name: temurin-17-jdk
+          update_cache: yes
+          state: present
+        
+      - name: "installing tomcat 10"
+        command: "wget 'https://dlcdn.apache.org/tomcat/tomcat-10/v10.0.26/bin/apache-tomcat-10.0.26.tar.gz' -P /tmp/"
+
+      - name: "unpacking"
+        unarchive:
+          remote_src: yes
+          src: "/tmp/apache-tomcat-10.0.26.tar.gz"
+          dest: "/usr/local/"
+
+      - name: "creating passwordless tomcat user"
+        user:
+          name: "tomcat"
+          shell: "/bin/bash"
+          password: '!'
+          
+      - name: "installing ACLs"
+        apt:
+          name: acl
+          state: present
+
+      - name: "makes tomcat owner of apache-tomcat directory"
+        file:
+          path: "/usr/local/apache-tomcat-10.0.26"
+          owner: "tomcat"
+          group: "tomcat"
+          recurse: yes
+        
+      - name: "remove any rights to other users"
+        file:
+          state: "touch"
+          path: "/usr/local/apache-tomcat-10.0.26"
+          mode: "u+rwx,g-rwx,o-rwx"
+
+- name: "REMOVING java"
+  become: yes
+  become_user: "root"
+  tags:
+    - "remove"
+  block:
+      - name: "removing the Eclipse Adoptium GPG key:"
+        file:
+          path: "/etc/apt/keyrings/adoptium.asc"
+          state: absent
+      
+      
+      - name: "removing the Eclipse Adoptium apt repository"
+        apt_repository:
+          repo: "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb {{ ansible_distribution_release }} main"
+          filename: "adoptium"
+          state: absent
+      
+      - name: "stop apache-tomcat if running"
+        command: "/usr/local/apache-tomcat-10.0.26/bin/shutdown.sh"
+        ignore_errors: yes
+        become: yes
+        become_user: "tomcat"
+        register: output
+        failed_when: " output.rc  == 1 and 'No such file' not in output.stderr"
+      
+      - name: "removing apache-tomcat"
+        file:
+          path: "/usr/local/apache-tomcat-10.0.26/"
+          state: absent
+        become: yes
+        become_user: "root"
+      
+      - name: "removing jdk"
+        apt:
+          name: "temurin-17-jdk"
+          state: absent
